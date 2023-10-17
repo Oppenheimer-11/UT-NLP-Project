@@ -6,15 +6,16 @@ from transformers import AutoAdapterModel
 import torch.nn as nn
 
 class DisasterClassifier(nn.Module):
-    def __init__(self, bert_out, adapter, adapter_config, dime_reduction_layer_out, hidden_lay_1, hidden_lay_2):
+    def __init__(self, bert_out, adapter, adapter_config, dime_reduction_layer_out, hidden_layer_1, hidden_layer_2, droup_out_rate):
         super(DisasterClassifier, self).__init__()
         
         self.bert_out = bert_out
         self.adapter = adapter
         self.adapter_config = adapter_config
         self.dime_reduction_layer_out = dime_reduction_layer_out
-        self.hidden_lay_1 = hidden_lay_1
-        self.hidden_lay_2 = hidden_lay_2
+        self.hidden_layer_1 = hidden_layer_1
+        self.hidden_layer_2 = hidden_layer_2
+        self.droup_out_rate = droup_out_rate
 
         self.bert = AutoAdapterModel.from_pretrained('bert-base-uncased')
         for param in self.bert.parameters():
@@ -34,11 +35,11 @@ class DisasterClassifier(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(self.dime_reduction_layer_out, self.hidden_lay_1),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(self.hidden_lay_1, self.hidden_lay_2),
+            nn.Dropout(self.droup_out_rate),
+            nn.Linear(self.hidden_layer_1, self.hidden_lay_2),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Softmax(self.hidden_lay_2, 2)  
+            nn.Dropout(self.droup_out_rate),
+            nn.Softmax(self.hidden_layer_2, 2)  
         )
 
     def forward(self, input_ids):

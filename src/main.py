@@ -16,26 +16,27 @@ import os
 
 def main():
     '''
-    Run with: 
+    Run in terminal with: 
     cd /src
     python src/main.py
     '''
+
+    # load params
 
     parser = argparse.ArgumentParser(description='Test Argparse')
     
     parser.add_argument('--file_path', type=str, default=r'../datasets/')
     parser.add_argument('--train_file', type=str, default=r'train.csv')
     parser.add_argument('--test_file', type=str, default=r'test.csv')
-    parser.add_argument('bert_out', type=int, default=32)
-    parser.add_argument('adapter', type=str, default='mrpc')
-    parser.add_argument('adapter_config', type=str, default='pfeiffer')
-    parser.add_argument('dime_reduction_layer_out', type=int, default=64)
-    parser.add_argument('hidden_lay_1', type=int, default=32)
-    parser.add_argument('hidden_lay_2', type=int, default=8)
+    parser.add_argument('--bert_out', type=int, default=32)
+    parser.add_argument('--adapter', type=str, default='mrpc')
+    parser.add_argument('--adapter_config', type=str, default='pfeiffer')
+    parser.add_argument('--dime_reduction_layer_out', type=int, default=64)
+    parser.add_argument('--hidden_layer_1', type=int, default=32)
+    parser.add_argument('--hidden_layer_2', type=int, default=8)
+    parser.add_argument('--droup_out_rate', type=float, default=0.5)
     parser.add_argument('--epoch', type=int, default=20)
     parser.add_argument('--expr_id', type=int)
-
-    # parser.add_argument('--subm_file', type=str, default=r'sample_submission.csv')
     
     args = parser.parse_args()
 
@@ -43,10 +44,16 @@ def main():
     file_path = args.file_path
     train_file = args.train_file
     test_file = args.test_file
+    bert_out = args.bert_out
+    adapter = args.adapter
+    adapter_config = args.adapter_config
+    dime_reduction_layer_out = args.dime_reduction_layer_out
+    hidden_layer_1 = args.hidden_layer_1
+    hidden_layer_2 = args.hidden_layer_2
+    droup_out_rate = args.droup_out_rate
     EXPERIMENT_ID = args.expr_id
     EPOCH = args.epoch
 
-    
 
     # load files
     raw_train_data = pd.read_csv(file_path+train_file)
@@ -89,11 +96,9 @@ def main():
     # load model
 
     path_checkpoint = f'../model/checkpoint/ckpt_expr_{EXPERIMENT_ID}.pth'
-
     start_epoch = -1
-
     model = DisasterClassifier(bert_out, adapter, adapter_config, dime_reduction_layer_out, 
-                               hidden_lay_1, hidden_lay_2)
+                               hidden_layer_1, hidden_layer_2, droup_out_rate)
 
     # Set up the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
