@@ -1,3 +1,7 @@
+'''
+This is a dataset class
+'''
+
 from torch.utils.data import Dataset
 
 class DisasterDataset(Dataset):
