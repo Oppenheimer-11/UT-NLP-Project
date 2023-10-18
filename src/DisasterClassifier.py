@@ -33,13 +33,13 @@ class DisasterClassifier(nn.Module):
         self.dimension_reduce_layer = nn.Linear(self.bert_out, self.dime_reduction_layer_out)
         
         self.mlp = nn.Sequential(
-            nn.Linear(self.dime_reduction_layer_out, self.hidden_lay_1),
+            nn.Linear(self.dime_reduction_layer_out, self.hidden_layer_1),
             nn.ReLU(),
             nn.Dropout(self.droup_out_rate),
-            nn.Linear(self.hidden_layer_1, self.hidden_lay_2),
+            nn.Linear(self.hidden_layer_1, self.hidden_layer_2),
             nn.ReLU(),
             nn.Dropout(self.droup_out_rate),
-            nn.Softmax(self.hidden_layer_2, 2)  
+            nn.Linear(self.hidden_layer_2, 2),  
         )
 
     def forward(self, input_ids):
