@@ -7,18 +7,19 @@ from transformers import BertTokenizer, BertModel
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, TensorDataset
 import argparse
 from DisasterDataset import DisasterDataset
 from DisasterClassifier import DisasterClassifier
-import tqdm
+from tqdm import tqdm
 import os
 
 def main():
     '''
     Run in terminal with: 
-    cd /src
-    python src/main.py
+    cd NLP/UT-NLP-Project/src/
+    python main.py --expr_id=id
     '''
 
     # load params
@@ -28,13 +29,13 @@ def main():
     parser.add_argument('--file_path', type=str, default=r'../datasets/')
     parser.add_argument('--train_file', type=str, default=r'train.csv')
     parser.add_argument('--test_file', type=str, default=r'test.csv')
-    parser.add_argument('--bert_out', type=int, default=32)
+    parser.add_argument('--bert_out', type=int, default=64)
     parser.add_argument('--adapter', type=str, default='mrpc')
     parser.add_argument('--adapter_config', type=str, default='pfeiffer')
-    parser.add_argument('--dime_reduction_layer_out', type=int, default=64)
-    parser.add_argument('--hidden_layer_1', type=int, default=32)
+    parser.add_argument('--dime_reduction_layer_out', type=int, default=32)
+    parser.add_argument('--hidden_layer_1', type=int, default=16)
     parser.add_argument('--hidden_layer_2', type=int, default=8)
-    parser.add_argument('--droup_out_rate', type=float, default=0.5)
+    parser.add_argument('--drop_out_rate', type=float, default=0.5)
     parser.add_argument('--epoch', type=int, default=20)
     parser.add_argument('--expr_id', type=int)
     
@@ -50,11 +51,20 @@ def main():
     dime_reduction_layer_out = args.dime_reduction_layer_out
     hidden_layer_1 = args.hidden_layer_1
     hidden_layer_2 = args.hidden_layer_2
-    droup_out_rate = args.droup_out_rate
+    drop_out_rate = args.drop_out_rate
     EXPERIMENT_ID = args.expr_id
     EPOCH = args.epoch
 
 
+    # define device
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print('--- gpu ---')
+    else:
+        device = torch.device("cpu")
+        print('--- cpu ---')
+    
+    
     # load files
     raw_train_data = pd.read_csv(file_path+train_file)
     raw_test_data = pd.read_csv(file_path+test_file)
@@ -72,16 +82,17 @@ def main():
 
     # Split the data into train and train sets
     # train : val : test = 70% : 15% : 15%
-    train_data, test_data, train_labels, test_labels = train_test_split(raw_train_data['text'], raw_train_data['target'], test_size=0.3, random_state=42)
-    val_data, test_data, val_labels, test_labels = train_test_split(raw_train_data['text'], raw_train_data['target'], test_size=0.5, random_state=42)
+    train_data, temp_data, train_labels, temp_labels = train_test_split(raw_train_data['text'], raw_train_data['target'], test_size=0.3, random_state=42)
+    val_data, test_data, val_labels, test_labels = train_test_split(temp_data, temp_labels, test_size=0.5, random_state=42)
+
 
     # convert data into tensors
-    train_data = torch.LongTensor(train_data.tolist())
-    train_labels = torch.LongTensor(train_labels.tolist())
-    val_data = torch.LongTensor(val_data.tolist())
-    val_labels = torch.LongTensor(val_labels.tolist())
-    test_data = torch.LongTensor(test_data.tolist())
-    test_labels = torch.LongTensor(test_labels.tolist())
+    train_data = torch.LongTensor(train_data.tolist()).to(device)
+    train_labels = torch.LongTensor(train_labels.tolist()).to(device)
+    val_data = torch.LongTensor(val_data.tolist()).to(device)
+    val_labels = torch.LongTensor(val_labels.tolist()).to(device)
+    test_data = torch.LongTensor(test_data.tolist()).to(device)
+    test_labels = torch.LongTensor(test_labels.tolist()).to(device)
     
     # create data loader
     train_dataset = DisasterDataset(train_data, train_labels)
@@ -98,11 +109,12 @@ def main():
     path_checkpoint = f'../model/checkpoint/ckpt_expr_{EXPERIMENT_ID}.pth'
     start_epoch = -1
     model = DisasterClassifier(bert_out, adapter, adapter_config, dime_reduction_layer_out, 
-                               hidden_layer_1, hidden_layer_2, droup_out_rate)
+                               hidden_layer_1, hidden_layer_2, drop_out_rate).to(device)
 
     # Set up the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
 
     if os.path.exists(path_checkpoint):
         print('load model...')
@@ -115,9 +127,12 @@ def main():
     # train
     iepoches = []
     f1_vals = []
-
+    PATIENCE = 5
+    best_f1 = 0.0
+    epochs_since_best = 0
+    
     # Training loop
-    for iepoch in range(start_epoch + 1 ,EPOCH):
+    for iepoch in range(start_epoch + 1, EPOCH):
         print(f'train epoch {iepoch}/{EPOCH}')
         model.train()
         for data, labels in tqdm(train_loader):
@@ -126,48 +141,62 @@ def main():
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+        scheduler.step()
+            
+        # Validation and test
 
-        # save model
-        checkpoint = {
-                "net": model.state_dict(),
-                'optimizer':optimizer.state_dict(),
-                "epoch": iepoch
-            }
-        if not os.path.isdir("../model/checkpoint"):
-            os.mkdir("../model/checkpoint")
-        torch.save(checkpoint, f'../model/checkpoint/ckpt_expr_{EXPERIMENT_ID}.pth')
-            
-        # Validation loop
-        if iepoch % 2 == 0:
-            model.eval()
-            
-            # validate
-            predicted_labels = []
-            true_labels = []
-            with torch.no_grad():
-                for data, labels in tqdm(val_loader):
-                    outputs = model(data)
-                    _, predicted = torch.max(outputs.data, 1)
-                    predicted_labels.extend(predicted.tolist())
-                    true_labels.extend(labels.tolist())
-                    
-            f1 = f1_score(true_labels, predicted_labels, average='macro')
-            
-            iepoches.append(iepoch)
-            f1_vals.append(f1)
-            print(f'Validation F1 Score: {f1 * 100:.2f}%')
+        model.eval()
+
+        # validate
+        val_predicted_labels = []
+        val_true_labels = []
+        with torch.no_grad():
+            for data, labels in tqdm(val_loader):
+                outputs = model(data)
+                _, predicted = torch.max(outputs.data, 1)
+                val_predicted_labels.extend(predicted.tolist())
+                val_true_labels.extend(labels.tolist())
+
+        f1 = f1_score(val_true_labels, val_predicted_labels, average='macro')
+
+        iepoches.append(iepoch)
+        f1_vals.append(f1)
+        print(f'Validation F1 Score: {f1 * 100:.2f}%')
+
+        # Check for early stopping
+        if f1 > best_f1:
+            best_f1 = f1
+            epochs_since_best = 0
+
+            # save model
+            checkpoint = {
+                    "net": model.state_dict(),
+                    'optimizer':optimizer.state_dict(),
+                    "epoch": iepoch
+                }
+            if not os.path.isdir("../model/checkpoint"):
+                os.mkdir("../model/checkpoint")
+            torch.save(checkpoint, f'../model/checkpoint/ckpt_expr_{EXPERIMENT_ID}.pth')
+
+        else:
+            epochs_since_best += 1
+
+        if epochs_since_best >= PATIENCE:
+            print("Early stopping!")
+            break
             
             # test
-            predicted_labels = []
-            true_labels = []
+        if iepoch % 2 == 0:
+            test_predicted_labels = []
+            test_true_labels = []
             with torch.no_grad():
                 for data, labels in tqdm(test_loader):
                     outputs = model(data)
                     _, predicted = torch.max(outputs.data, 1)
-                    predicted_labels.extend(predicted.tolist())
-                    true_labels.extend(labels.tolist())
+                    test_predicted_labels.extend(predicted.tolist())
+                    test_true_labels.extend(labels.tolist())
                     
-            f1 = f1_score(true_labels, predicted_labels, average='macro')
+            f1 = f1_score(test_true_labels, test_predicted_labels, average='macro')
             
             iepoches.append(iepoch)
             f1_vals.append(f1)
